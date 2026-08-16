@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Mini City 3D</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a1a1a">
+<style>
+  html, body { margin:0; padding:0; overflow:hidden; background:#87ceeb; font-family:'Segoe UI',Tahoma,sans-serif; touch-action:none; }
+  #hud {
+    position:absolute; top:10px; left:10px; color:#fff; font-size:14px;
+    text-shadow:1px 1px 2px #000; z-index:10; background:rgba(0,0,0,0.4);
+    padding:8px 12px; border-radius:8px; line-height:1.5;
+  }
+  #wanted { color:#ffcc00; font-weight:bold; }
+  #hint {
+    position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+    color:#ccc; font-size:11px; text-align:center; z-index:10;
+    background:rgba(0,0,0,0.4); padding:6px 12px; border-radius:8px; max-width:92vw;
+  }
+  #joystickZone {
+    position:absolute; left:20px; bottom:20px; width:130px; height:130px;
+    border-radius:50%; background:rgba(255,255,255,0.08); border:2px solid rgba(255,255,255,0.2);
+    z-index:15; touch-action:none;
+  }
+  #joystickKnob {
+    position:absolute; width:55px; height:55px; border-radius:50%;
+    background:rgba(255,255,255,0.35); top:37px; left:37px; pointer-events:none;
+  }
+  .btn {
+    position:absolute; width:60px; height:60px; border-radius:50%;
+    background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.4);
+    color:#fff; font-size:20px; display:flex; align-items:center; justify-content:center;
+    user-select:none; z-index:20; touch-action:none;
+  }
+  #enterBtn { right:20px; bottom:180px; background:rgba(80,180,255,0.3); }
+  #actionBtn { right:100px; bottom:40px; background:rgba(255,80,80,0.3); }
+  #weaponBar {
+    position:absolute; top:10px; right:10px; z-index:20; display:flex; gap:6px;
+  }
+  .wbtn {
+    width:46px; height:46px; border-radius:8px; background:rgba(0,0,0,0.5);
+    border:2px solid rgba(255,255,255,0.3); color:#fff; font-size:20px;
+    display:flex; align-items:center; justify-content:center; position:relative;
+  }
+  .wbtn.active { border-color:#ffcc00; }
+  .wbtn.locked { opacity:0.4; }
+  .wbtn .price {
+    position:absolute; bottom:-14px; font-size:9px; color:#ffcc00; white-space:nowrap;
+  }
+  #loading {
+    position:absolute; inset:0; background:#111; color:#fff; display:flex;
+    align-items:center; justify-content:center; font-size:18px; z-index:50;
+  }
+  #gameOverScreen {
+    position:absolute; inset:0; background:rgba(0,0,0,0.85); color:#fff;
+    display:none; flex-direction:column; align-items:center; justify-content:center;
+    z-index:60; text-align:center;
+  }
+  #gameOverScreen button {
+    margin-top:16px; padding:10px 24px; font-size:16px; border-radius:8px;
+    border:none; background:#ffcc00; cursor:pointer; font-weight:bold;
+  }
+  #toast {
+    position:absolute; top:80px; left:50%; transform:translateX(-50%);
+    color:#ffcc00; font-size:15px; font-weight:bold; text-shadow:1px 1px 2px #000;
+    z-index:25; opacity:0; transition:opacity 0.3s; pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<div id="loading">در حال بارگذاری شهر سه‌بعدی...</div>
+<div id="hud">
+  ❤️ سلامتی: <span id="health">100</span><br>
+  💰 پول: <span id="money">0</span><br>
+  🚗 سرعت: <span id="speed">0</span> km/h<br>
+  🚔 تحت تعقیب: <span id="wanted">آروم</span>
+</div>
+<div id="weaponBar"></div>
+<div id="toast"></div>
+<div id="hint">جوی‌استیک: حرکت | آبی: سوار/پیاده شدن | قرمز: شلیک یا ترمز دستی | سکه‌های طلایی رو جمع کن تا پول دربیاری و سلاح بخری</div>
+<div id="joystickZone"><div id="joystickKnob"></div></div>
+<div class="btn" id="enterBtn">🚪</div>
+<div class="btn" id="actionBtn">🔫</div>
+
+<div id="gameOverScreen">
+  <h1>بازی تموم شد</h1>
+  <p id="finalMsg"></p>
+  <button onclick="location.reload()">شروع دوباره</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+window.addEventListener('load', init);
+
+function init() {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87ceeb);
+  scene.fog = new THREE.Fog(0x87ceeb, 60, 260);
+
+  const camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHeight, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  document.body.appendChild(renderer.domElement);
+  document.getElementById('loading').style.display = 'none';
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.1);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+  sun.position.set(60, 100, 40);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -150;
+  sun.shadow.camera.right = 150;
+  sun.shadow.camera.top = 150;
+  sun.shadow.camera.bottom = -150;
+  scene.add(sun);
+
+  const groundSize = 400;
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(groundSize, groundSize),
+    new THREE.MeshStandardMaterial({ color: 0x4a7c3f })
+  );
+  ground.rotation.x = -Math.PI/2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a });
+  const roadLineMat = new THREE.MeshStandardMaterial({ color: 0xffcc00 });
+  const blockSize = 40, roadWidth = 8, gridCount = 8;
+  const roadsGroup = new THREE.Group();
+  for (let i = -gridCount/2; i <= gridCount/2; i++) {
+    const pos = i * blockSize;
+    const rH = new THREE.Mesh(new THREE.PlaneGeometry(groundSize, roadWidth), roadMat);
+    rH.rotation.x = -Math.PI/2; rH.position.set(0, 0.01, pos); rH.receiveShadow = true;
+    roadsGroup.add(rH);
+    const rV = new THREE.Mesh(new THREE.PlaneGeometry(roadWidth, groundSize), roadMat);
+    rV.rotation.x = -Math.PI/2; rV.position.set(pos, 0.01, 0); rV.receiveShadow = true;
+    roadsGroup.add(rV);
+    const lH = new THREE.Mesh(new THREE.PlaneGeometry(groundSize, 0.3), roadLineMat);
+    lH.rotation.x = -Math.PI/2; lH.position.set(0, 0.02, pos); roadsGroup.add(lH);
+    const lV = new THREE.Mesh(new THREE.PlaneGeometry(0.3, groundSize), roadLineMat);
+    lV.rotation.x = -Math.PI/2; lV.position.set(pos, 0.02, 0); roadsGroup.add(lV);
+  }
+  scene.add(roadsGroup);
+
+  const buildingColors = [0xb5651d, 0x8899aa, 0xaa7744, 0x557799, 0x996655, 0x778866];
+  const buildings = [];
+  for (let bx = -gridCount/2; bx < gridCount/2; bx++) {
+    for (let bz = -gridCount/2; bz < gridCount/2; bz++) {
+      if (Math.random() < 0.25) continue;
+      const cx = bx*blockSize + blockSize/2;
+      const cz = bz*blockSize + blockSize/2;
+      if (Math.hypot(cx, cz) < 30) continue;
+      const w = 12 + Math.random()*14;
+      const d = 12 + Math.random()*14;
+      const h = 6 + Math.random()*28;
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(w, h, d),
+        new THREE.MeshStandardMaterial({ color: buildingColors[Math.floor(Math.random()*buildingColors.length)] })
+      );
+      mesh.position.set(cx + (Math.random()-0.5)*4, h/2, cz + (Math.random()-0.5)*4);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      scene.add(mesh);
+      buildings.push({ mesh, halfW: w/2, halfD: d/2 });
+    }
+  }
+
+  function checkBuildingCollision(x, z, margin) {
+    margin = margin || 1.5;
+    for (const b of buildings) {
+      if (Math.abs(x - b.mesh.position.x) < b.halfW + margin &&
+          Math.abs(z - b.mesh.position.z) < b.halfD + margin) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function onRoad(x, z, margin) {
+    margin = margin || 0;
+    for (let i = -gridCount/2; i <= gridCount/2; i++) {
+      const pos = i * blockSize;
+      if (Math.abs(z - pos) < roadWidth/2 + margin) return true;
+      if (Math.abs(x - pos) < roadWidth/2 + margin) return true;
+    }
+    return false;
+  }
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(toast._h);
+    toast._h = setTimeout(()=>{ t.style.opacity = '0'; }, 1400);
+  }
+
+  const weapons = [
+    { id:'pistol', name:'کلت', icon:'🔫', price:0, unlocked:true, color:0x222222, damage:34, fireDelay:0.35 },
+    { id:'shotgun', name:'ساچمه‌ای', icon:'💥', price:150, unlocked:false, color:0x5a3d1f, damage:70, fireDelay:0.7 },
+    { id:'rifle', name:'تفنگ', icon:'🎯', price:400, unlocked:false, color:0x334433, damage:26, fireDelay:0.15 }
+  ];
+  let activeWeaponIndex = 0;
+  let fireCooldown = 0;
+
+  function buildWeaponBar() {
+    const bar = document.getElementById('weaponBar');
+    bar.innerHTML = '';
+    weapons.forEach((w, i) => {
+      const btn = document.createElement('div');
+      btn.className = 'wbtn' + (i === activeWeaponIndex ? ' active' : '') + (!w.unlocked ? ' locked' : '');
+      btn.innerHTML = w.icon + (w.unlocked ? '' : `<span class="price">${w.price}$</span>`);
+      btn.addEventListener('click', () => selectWeapon(i));
+      btn.addEventListener('touchstart', (e) => { e.preventDefault(); selectWeapon(i); });
+      bar.appendChild(btn);
+    });
+  }
+  function selectWeapon(i) {
+    const w = weapons[i];
+    if (!w.unlocked) {
+      if (player.money >= w.price) {
+        w.unlocked = true;
+        player.money -= w.price;
+        toast(`${w.name} خریداری شد!`);
+      } else {
+        toast(`پول کافی نیست (${w.price}$ لازمه)`);
+        return;
+      }
+    }
+    activeWeaponIndex = i;
+    updateHeldWeapon();
+    buildWeaponBar();
+  }
+
+  function buildPerson(shirtColor, pantsColor) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 0.35), new THREE.MeshStandardMaterial({ color: shirtColor }));
+    body.position.y = 1.1; body.castShadow = true;
+    const legs = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.32), new THREE.MeshStandardMaterial({ color: pantsColor }));
+    legs.position.y = 0.45; legs.castShadow = true;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 10), new THREE.MeshStandardMaterial({ color: 0xe0b088 }));
+    head.position.y = 1.7; head.castShadow = true;
+    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.6, 0.18), new THREE.MeshStandardMaterial({ color: shirtColor }));
+    armR.position.set(0.42, 1.05, 0.15); armR.rotation.x = -0.5; armR.castShadow = true;
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.6, 0.18), new THREE.MeshStandardMaterial({ color: shirtColor }));
+    armL.position.set(-0.42, 1.1, 0); armL.castShadow = true;
+    const handSocket = new THREE.Group();
+    handSocket.position.set(0.42, 0.78, 0.5);
+    g.add(body, legs, head, armR, armL, handSocket);
+    return { group: g, handSocket };
+  }
+
+  function buildWeaponMesh(weapon) {
+    const g = new THREE.Group();
+    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.45), new THREE.MeshStandardMaterial({ color: weapon.color }));
+    barrel.position.z = 0.1;
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.28, 0.1), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+    grip.position.set(0, -0.18, -0.08);
+    g.add(barrel, grip);
+    if (weapon.id === 'shotgun') {
+      barrel.scale.set(1.3, 1.3, 1.6);
+      const stock = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.3), new THREE.MeshStandardMaterial({ color: 0x5a3d1f }));
+      stock.position.set(0, -0.02, -0.35);
+      g.add(stock);
+    } else if (weapon.id === 'rifle') {
+      barrel.scale.set(0.8, 0.8, 2.4);
+      const mag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, 0.09), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+      mag.position.set(0, -0.28, 0.05);
+      g.add(mag);
+    }
+    return g;
+  }
+
+  const built = buildPerson(0xffcc00, 0x2244aa);
+  const playerGroup = built.group;
+  const handSocket = built.handSocket;
+  scene.add(playerGroup);
+  let heldWeaponMesh = null;
+  function updateHeldWeapon() {
+    if (heldWeaponMesh) handSocket.remove(heldWeaponMesh);
+    heldWeaponMesh = buildWeaponMesh(weapons[activeWeaponIndex]);
+    handSocket.add(heldWeaponMesh);
+  }
+  updateHeldWeapon();
+  buildWeaponBar();
+
+  const muzzleFlashes = [];
+  function spawnMuzzleFlash() {
+    const pos = new THREE.Vector3();
+    handSocket.getWorldPosition(pos);
+    const light = new THREE.PointLight(0xffaa33, 6, 10, 2);
+    light.position.copy(pos);
+    scene.add(light);
+    const flashMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffee99, transparent: true, opacity: 1 })
+    );
+    flashMesh.position.copy(pos);
+    scene.add(flashMesh);
+    muzzleFlashes.push({ light, mesh: flashMesh, age: 0 });
+  }
+  function updateMuzzleFlashes(dt) {
+    for (let i = muzzleFlashes.length-1; i >= 0; i--) {
+      const f = muzzleFlashes[i];
+      f.age += dt;
+      const t = f.age / 0.12;
+      if (t >= 1) {
+        scene.remove(f.light);
+        scene.remove(f.mesh);
+        muzzleFlashes.splice(i, 1);
+        continue;
+      }
+      f.light.intensity = 6 * (1 - t);
+      f.mesh.material.opacity = 1 - t;
+      f.mesh.scale.setScalar(1 + t * 1.5);
+    }
+  }
+
+  const player = { x: 0, z: 12, angle: 0, health: 100, money: 0, inCar: null, alive: true };
+  playerGroup.position.set(player.x, 0, player.z);
+
+  function buildCar(color) {
+    const g = new THREE.Group();
+    const carBody = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.9, 4.2), new THREE.MeshStandardMaterial({ color }));
+    carBody.position.y = 0.6; carBody.castShadow = true;
+    g.add(carBody);
+    const carTop = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.6, 2.0), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+    carTop.position.set(0, 1.25, -0.2); carTop.castShadow = true;
+    g.add(carTop);
+    const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.35, 16);
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    const wheels = [];
+    for (const [x,y,z] of [[-1.1,0.4,1.4],[1.1,0.4,1.4],[-1.1,0.4,-1.4],[1.1,0.4,-1.4]]) {
+      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+      wheel.rotation.z = Math.PI/2; wheel.position.set(x,y,z); wheel.castShadow = true;
+      g.add(wheel); wheels.push(wheel);
+    }
+    return { group: g, wheels };
+  }
+
+  const carColors = [0xdd2222, 0x2266dd, 0xdddd22, 0x22aa55, 0x9944cc];
+  const cars = [];
+  const spawnSpots = [[8, 4, 0], [-8, 20, Math.PI/2], [14, -6, Math.PI]];
+  spawnSpots.forEach(([x,z,angle], i) => {
+    const b = buildCar(carColors[i % carColors.length]);
+    b.group.position.set(x, 0, z);
+    b.group.rotation.y = angle;
+    scene.add(b.group);
+    cars.push({ ...b, x, z, angle, speed: 0, occupied: false, damage: 0 });
+  });
+  for (let i = 0; i < 5; i++) {
+    let x, z;
+    do { x = (Math.random()-0.5)*groundSize*0.7; z = (Math.random()-0.5)*groundSize*0.7; } while(!onRoad(x,z));
+    const b = buildCar(carColors[i % carColors.length]);
+    b.group.position.set(x, 0, z);
+    scene.add(b.group);
+    cars.push({ ...b, x, z, angle: 0, speed: 0, occupied: false, damage: 0 });
+  }
+
+  const traffic = [];
+  for (let i = 0; i < 6; i++) {
+    const laneVertical = Math.random() < 0.5;
+    const laneIndex = Math.floor((Math.random()-0.5) * gridCount);
+    const b = buildCar(carColors[(i+2) % carColors.length]);
+    scene.add(b.group);
+    traffic.push({
+      group: b.group, vertical: laneVertical,
+      lanePos: laneIndex * blockSize + (Math.random()<0.5 ? 2 : -2),
+      progress: (Math.random()-0.5) * groundSize,
+      speed: 4 + Math.random()*3, dir: Math.random() < 0.5 ? 1 : -1
+    });
+  }
+
+  const pedColors = [0xdd6666, 0x66dd66, 0x6666dd, 0xdddd66, 0xdd66dd];
+  const pedestrians = [];
+  for (let i = 0; i < 14; i++) {
+    let x, z;
+    do { x = (Math.random()-0.5)*groundSize*0.8; z = (Math.random()-0.5)*groundSize*0.8; } while(onRoad(x,z,2) || checkBuildingCollision(x,z,2));
+    const p = buildPerson(pedColors[i % pedColors.length], 0x333333);
+    p.group.position.set(x, 0, z);
+    scene.add(p.group);
+    pedestrians.push({ group: p.group, x, z, angle: Math.random()*Math.PI*2, speed: 0.8, alive: true, timer: Math.random()*100 });
+  }
+
+  const coins = [];
+  const coinGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.08, 16);
+  const coinMat = new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0x664400 });
+  for (let i = 0; i < 30; i++) {
+    let x, z;
+    do { x = (Math.random()-0.5)*groundSize*0.85; z = (Math.random()-0.5)*groundSize*0.85; } while(checkBuildingCollision(x,z,2));
+    const mesh = new THREE.Mesh(coinGeo, coinMat);
+    mesh.rotation.x = Math.PI/2;
+    mesh.position.set(x, 1, z);
+    mesh.castShadow = true;
+    scene.add(mesh);
+    coins.push({ mesh, x, z, value: 15 + Math.floor(Math.random()*20), alive: true });
+  }
+
+  const police = [];
+  let wantedLevel = 0, wantedTimer = 0;
+  function spawnPolice() {
+    let x, z;
+    do { x = player.x + (Math.random()-0.5)*60; z = player.z + (Math.random()-0.5)*60; } while(!onRoad(x,z));
+    const b = buildCar(0x1a1aff);
+    b.group.position.set(x, 0, z);
+    scene.add(b.group);
+    police.push({ ...b, x, z, angle: 0, speed: 0, health: 100 });
+  }
+  function addWanted(amount) {
+    wantedLevel = Math.min(5, wantedLevel + amount);
+    wantedTimer = 500;
+    while (police.length < Math.ceil(wantedLevel)) spawnPolice();
+  }
+
+  let joyActive = false, joyDX = 0, joyDY = 0;
+  const joyZone = document.getElementById('joystickZone');
+  const joyKnob = document.getElementById('joystickKnob');
+  function joyMove(e) {
+    if (!joyActive) return;
+    const rect = joyZone.getBoundingClientRect();
+    const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+    const point = e.touches ? e.touches[0] : e;
+    let dx = point.clientX - cx, dy = point.clientY - cy;
+    const dist = Math.min(Math.hypot(dx,dy), 45);
+    const ang = Math.atan2(dy,dx);
+    joyDX = Math.cos(ang) * (dist/45);
+    joyDY = Math.sin(ang) * (dist/45);
+    joyKnob.style.left = (37 + joyDX*35) + 'px';
+    joyKnob.style.top = (37 + joyDY*35) + 'px';
+  }
+  function joyEnd() { joyActive=false; joyDX=0; joyDY=0; joyKnob.style.left='37px'; joyKnob.style.top='37px'; }
+  joyZone.addEventListener('touchstart', e => { joyActive=true; joyMove(e); });
+  joyZone.addEventListener('touchmove', joyMove);
+  joyZone.addEventListener('touchend', joyEnd);
+  joyZone.addEventListener('mousedown', e => { joyActive=true; joyMove(e); });
+  window.addEventListener('mousemove', e => { if (joyActive) joyMove(e); });
+  window.addEventListener('mouseup', joyEnd);
+
+  let actionHeld = false;
+  const actionBtn = document.getElementById('actionBtn');
+  actionBtn.addEventListener('touchstart', e=>{e.preventDefault(); actionHeld=true;});
+  actionBtn.addEventListener('touchend', e=>{e.preventDefault(); actionHeld=false;});
+  actionBtn.addEventListener('mousedown', ()=>actionHeld=true);
+  actionBtn.addEventListener('mouseup', ()=>actionHeld=false);
+
+  const enterBtn = document.getElementById('enterBtn');
+  enterBtn.addEventListener('touchstart', e=>{e.preventDefault(); toggleCar();});
+  enterBtn.addEventListener('mousedown', toggleCar);
+
+  const keys = {};
+  window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+  window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+  window.addEventListener('keydown', e => {
+    if (e.key === 'e' || e.key === 'E') toggleCar();
+    if (e.key >= '1' && e.key <= '3') selectWeapon(parseInt(e.key)-1);
+  });
+
+  function fireWeapon() {
+    const w = weapons[activeWeaponIndex];
+    spawnMuzzleFlash();
+    let hitSomething = false;
+    for (const p of pedestrians) {
+      if (!p.alive) continue;
+      const dx = p.x-player.x, dz = p.z-player.z;
+      const dist = Math.hypot(dx,dz);
+      if (dist < 16) {
+        const angToTarget = Math.atan2(dx,dz);
+        let diff = Math.abs(angToTarget - player.angle);
+        if (diff > Math.PI) diff = Math.PI*2 - diff;
+        if (diff < 0.4) {
+          p.alive = false; p
