@@ -1,0 +1,10 @@
+{
+  "name": "Mini City 3D",
+  "short_name": "MiniCity",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#87ceeb",
+  "theme_color": "#1a1a1a",
+  "orientation": "landscape",
+  "icons": []
+}
